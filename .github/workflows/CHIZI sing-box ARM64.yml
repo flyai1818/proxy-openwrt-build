@@ -1,4 +1,4 @@
-name: Build CHIZI sing-box ARM64 (tc-rewrite)
+name: Build CHIZI sing-box ARM64 (ebpf-inbound)
 
 on:
   workflow_dispatch:
@@ -6,19 +6,19 @@ on:
       source_ref:
         description: "CHIZI branch / tag / commit"
         required: true
-        default: "testing-ebpf-tc-rewrite"
+        default: "ebpf-inbound"
         type: string
 
 permissions:
   contents: write
 
 concurrency:
-  group: chizi-sing-box-build-tc-rewrite
+  group: chizi-sing-box-build-ebpf-inbound
   cancel-in-progress: true
 
 env:
   SOURCE_REPO: CHIZI-0618/sing-box
-  SOURCE_BRANCH: testing-ebpf-tc-rewrite
+  SOURCE_BRANCH: ebpf-inbound
   BUILD_TAGS: with_ebpf,with_quic,with_utls,with_clash_api
 
 jobs:
@@ -85,8 +85,8 @@ jobs:
           fi
 
           BASE_VERSION="${BASE_TAG#v}"
-          VERSION="${BASE_VERSION}-chizi-tcrewrite.${SHORT_SHA}"
-          RELEASE_TAG="chizi-tcrewrite-${BASE_VERSION}-${SHORT_SHA}"
+          VERSION="${BASE_VERSION}-chizi-ebpf-inbound.${SHORT_SHA}"
+          RELEASE_TAG="chizi-ebpf-inbound-${BASE_VERSION}-${SHORT_SHA}"
 
           COMMIT_DATE="$(git show -s --format=%cI HEAD)"
           COMMIT_SUBJECT="$(git show -s --format=%s HEAD)"
@@ -148,14 +148,14 @@ jobs:
           cache-dependency-path: source/go.sum
 
       # ============================================================
-      # 6. 验证 eBPF object + 运行相关测试
+      # 6. 运行 eBPF 相关测试
       #
-      # tc-rewrite 分支把 cilium 分支的 cgroup.bpf.c / shared_network.bpf.c
-      # 合并成了统一的 tc.bpf.c，产物文件名也随之变成 tc_bpfel.o /
-      # tc_bpfeb.o，不再有 cgroup_*.o / shared_network_*.o / splice_*.o。
-      # 已对照该分支 common/ebpf/internal/bpfgen/ 目录实际内容确认。
+      # ebpf-inbound 已将底层 eBPF 能力逐步抽取到独立的
+      # github.com/CHIZI-0618/sing-ebpf 依赖中。
+      # 不对旧 tc-rewrite 分支的具体 object 文件路径作假设，
+      # 仅执行当前源码树中对应的 Go 测试。
       # ============================================================
-      - name: Verify and test eBPF
+      - name: Test eBPF
         if: steps.release.outputs.exists != 'true'
         working-directory: source
         shell: bash
@@ -163,10 +163,6 @@ jobs:
           CGO_ENABLED: "0"
         run: |
           set -euo pipefail
-
-          test -f common/ebpf/internal/bpfgen/tc_bpfel.o
-          test -f common/ebpf/internal/bpfgen/tc_bpfeb.o
-          test -f common/ebpf/internal/bpfgen/manifest.txt
 
           go test \
             -count=1 \
@@ -285,7 +281,7 @@ jobs:
           VERSION="${{ steps.meta.outputs.version }}"
 
           cat > /tmp/release-notes.md <<EOF
-          ## CHIZI sing-box ARM64 (testing-ebpf-tc-rewrite)
+          ## CHIZI sing-box ARM64 (ebpf-inbound)
 
           - Version: \`${VERSION}\`
           - Source: \`${SOURCE_REPO}\`

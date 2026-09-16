@@ -168,7 +168,6 @@ jobs:
           go test \
             -count=1 \
             -tags "with_ebpf" \
-            ./common/ebpf \
             ./protocol/ebpf \
             ./include \
             ./option

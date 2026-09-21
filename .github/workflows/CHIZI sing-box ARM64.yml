@@ -19,7 +19,7 @@ concurrency:
 env:
   SOURCE_REPO: CHIZI-0618/sing-box
   SOURCE_BRANCH: ebpf-inbound
-  BUILD_TAGS: with_ebpf,with_quic,with_utls
+  BUILD_TAGS: with_ebpf,with_quic,with_utls,with_clash_api
 
 jobs:
   build:

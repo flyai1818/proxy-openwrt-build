@@ -66,7 +66,7 @@ jobs:
 
           # Build tags.
           # Add/remove optional tags here whenever needed.
-          TAGS="with_ebpf,with_quic,with_utls"
+          TAGS="with_ebpf,with_quic,with_utls,with_clash_api"
 
           OUT="sing-box-${VERSION}-linux-arm64"
 

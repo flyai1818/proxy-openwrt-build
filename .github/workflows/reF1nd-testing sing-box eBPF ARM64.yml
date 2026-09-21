@@ -37,11 +37,12 @@ jobs:
       # Automatically follows the Go version declared by upstream go.mod.
       # ------------------------------------------------------------
       - name: Setup Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: stable
+          check-latest: true
           cache: true
-
+          cache-dependency-path: source/go.sum
       # ------------------------------------------------------------
       # 3. Define source/version/build metadata
       # ------------------------------------------------------------

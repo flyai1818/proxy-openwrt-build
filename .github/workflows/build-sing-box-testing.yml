@@ -10,8 +10,9 @@ jobs:
 
     steps:
       # ============================================================
-      # 1. Checkout 官方 sing-box testing 分支
-      # 必须 fetch-depth: 0，read_tag 解析版本需要完整 Git 历史
+      # 1. Checkout 官方 sing-box (testing)
+      # 必须 fetch-depth: 0，才能回溯到最新打的 Tag（如 v1.15.0-alpha.9）
+      # show-progress: false 可保持控制台日志清爽
       # ============================================================
       - name: Checkout Official SagerNet/sing-box (testing)
         uses: actions/checkout@v4
@@ -19,6 +20,7 @@ jobs:
           repository: SagerNet/sing-box
           ref: testing
           fetch-depth: 0
+          show-progress: false
 
       # ============================================================
       # 2. Setup Go (最新稳定版)
@@ -30,8 +32,8 @@ jobs:
           cache: true
 
       # ============================================================
-      # 3. 抓取官方版本号
-      # 直接执行当前检出工作区中的 read_tag 工具
+      # 3. 本地解析真实官方版本号
+      # 直接调用当前工作区里的 read_tag 源码
       # ============================================================
       - name: Determine Official Version
         id: version
@@ -50,7 +52,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       # ============================================================
-      # 4. 显示源码信息
+      # 4. 显示源码与版本信息确认
       # ============================================================
       - name: Show Source Information
         shell: bash
@@ -60,20 +62,15 @@ jobs:
           echo "========================================"
           echo "Branch     : testing"
           echo "Version    : ${{ steps.version.outputs.version }}"
+          echo "Latest Tag : $(git describe --tags --abbrev=0 2>/dev/null || true)"
           echo "Commit     : $(git rev-parse HEAD)"
           echo "Short hash : $(git rev-parse --short HEAD)"
           echo "========================================"
-
-          echo
-          echo "Git describe:"
-          git describe --tags --always
-
-          echo
-          echo "Go version:"
           go version
 
       # ============================================================
       # 5. 编译 Linux ARM64
+      # 显式传入 VERSION 变量，确保二进制内置版本与计算出的完全一致
       # ============================================================
       - name: Build Binary
         shell: bash
@@ -84,10 +81,13 @@ jobs:
         run: |
           set -euo pipefail
 
-          echo "Building sing-box ${{ steps.version.outputs.version }}"
+          TARGET_VER="${{ steps.version.outputs.version }}"
+          echo "Building sing-box version: ${TARGET_VER}"
           echo "Target: ${GOOS}/${GOARCH}"
 
+          # 显式传入 VERSION 覆盖 Makefile 里的自动抓取
           make build \
+            VERSION="${TARGET_VER}" \
             TAGS="with_quic,with_utls,with_clash_api"
 
           mv sing-box sing-box-linux-arm64

@@ -10,17 +10,19 @@ jobs:
 
     steps:
       # ============================================================
-      # 1. Checkout 官方 sing-box (testing)
-      # 必须 fetch-depth: 0，才能回溯到最新打的 Tag（如 v1.15.0-alpha.9）
-      # show-progress: false 可保持控制台日志清爽
+      # 1. 检出 testing 分支并静默拉取全部 Tags
       # ============================================================
       - name: Checkout Official SagerNet/sing-box (testing)
-        uses: actions/checkout@v4
-        with:
-          repository: SagerNet/sing-box
-          ref: testing
-          fetch-depth: 0
-          show-progress: false
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Cloning SagerNet/sing-box (testing branch)..."
+          git clone --quiet --branch testing --single-branch https://github.com/SagerNet/sing-box.git .
+          
+          echo "Fetching all tags..."
+          git fetch --tags --force > /dev/null 2>&1
+          
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
 
       # ============================================================
       # 2. Setup Go (最新稳定版)
@@ -33,7 +35,6 @@ jobs:
 
       # ============================================================
       # 3. 本地解析真实官方版本号
-      # 直接调用当前工作区里的 read_tag 源码
       # ============================================================
       - name: Determine Official Version
         id: version
@@ -62,7 +63,6 @@ jobs:
           echo "========================================"
           echo "Branch     : testing"
           echo "Version    : ${{ steps.version.outputs.version }}"
-          echo "Latest Tag : $(git describe --tags --abbrev=0 2>/dev/null || true)"
           echo "Commit     : $(git rev-parse HEAD)"
           echo "Short hash : $(git rev-parse --short HEAD)"
           echo "========================================"
@@ -70,7 +70,6 @@ jobs:
 
       # ============================================================
       # 5. 编译 Linux ARM64
-      # 显式传入 VERSION 变量，确保二进制内置版本与计算出的完全一致
       # ============================================================
       - name: Build Binary
         shell: bash
@@ -85,7 +84,6 @@ jobs:
           echo "Building sing-box version: ${TARGET_VER}"
           echo "Target: ${GOOS}/${GOARCH}"
 
-          # 显式传入 VERSION 覆盖 Makefile 里的自动抓取
           make build \
             VERSION="${TARGET_VER}" \
             TAGS="with_quic,with_utls,with_clash_api"

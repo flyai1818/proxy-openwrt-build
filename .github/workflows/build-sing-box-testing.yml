@@ -2,11 +2,6 @@ name: Build sing-box Linux ARM64 (Official Testing)
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: '要编译的分支、Tag 或 Commit（例如: testing, v1.14.0-beta.9, main, 或具体 Commit）'
-        required: true
-        default: 'testing'
 
 jobs:
   build:
@@ -15,59 +10,28 @@ jobs:
 
     steps:
       # ============================================================
-      # 1. 确定编译目标
+      # 1. Checkout 官方 sing-box testing 分支
+      # 必须 fetch-depth: 0，read_tag 解析版本需要完整 Git 历史
       # ============================================================
-      - name: Determine Target Ref
-        id: get_ref
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          REF="${{ github.event.inputs.version }}"
-
-          # schedule 运行时没有 inputs.version
-          if [ -z "${REF}" ]; then
-            REF="testing"
-          fi
-
-          echo "Target ref: ${REF}"
-          echo "target_ref=${REF}" >> "$GITHUB_OUTPUT"
-
-      # ============================================================
-      # 2. Checkout 官方 sing-box
-      #
-      # 必须 fetch-depth: 0
-      # 官方版本生成需要完整 Tag / Git 历史
-      # ============================================================
-      - name: Checkout Official SagerNet/sing-box
+      - name: Checkout Official SagerNet/sing-box (testing)
         uses: actions/checkout@v4
         with:
           repository: SagerNet/sing-box
-          ref: ${{ steps.get_ref.outputs.target_ref }}
+          ref: testing
           fetch-depth: 0
 
       # ============================================================
-      # 3. Setup Go
+      # 2. Setup Go (最新稳定版)
       # ============================================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version: 'stable'
           cache: true
 
       # ============================================================
-      # 4. 获取官方版本号
-      #
-      # 注意：
-      # 此时运行的是 Go 源码，因此是在 GitHub Runner 的 amd64
-      # 环境运行，不涉及 ARM64 二进制执行问题。
-      #
-      # Tag:
-      #   v1.14.0-beta.9
-      #   -> 1.14.0-beta.9
-      #
-      # testing HEAD:
-      #   -> 1.14.0-beta.9-xxxxxxx
+      # 3. 抓取官方版本号
+      # 直接执行当前检出工作区中的 read_tag 工具
       # ============================================================
       - name: Determine Official Version
         id: version
@@ -75,9 +39,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          VERSION="$(
-            go run github.com/sagernet/sing-box/cmd/internal/read_tag@latest
-          )"
+          VERSION="$(go run ./cmd/internal/read_tag)"
 
           if [ -z "${VERSION}" ]; then
             echo "ERROR: Unable to determine sing-box version."
@@ -88,7 +50,7 @@ jobs:
           echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
 
       # ============================================================
-      # 5. 显示源码信息
+      # 4. 显示源码信息
       # ============================================================
       - name: Show Source Information
         shell: bash
@@ -96,7 +58,7 @@ jobs:
           set -euo pipefail
 
           echo "========================================"
-          echo "Target ref : ${{ steps.get_ref.outputs.target_ref }}"
+          echo "Branch     : testing"
           echo "Version    : ${{ steps.version.outputs.version }}"
           echo "Commit     : $(git rev-parse HEAD)"
           echo "Short hash : $(git rev-parse --short HEAD)"
@@ -111,10 +73,7 @@ jobs:
           go version
 
       # ============================================================
-      # 6. 编译 Linux ARM64
-      #
-      # 使用 sing-box 官方 Makefile。
-      # 官方 Makefile 会使用自己的 read_tag 自动注入版本号。
+      # 5. 编译 Linux ARM64
       # ============================================================
       - name: Build Binary
         shell: bash
@@ -135,10 +94,7 @@ jobs:
           chmod +x sing-box-linux-arm64
 
       # ============================================================
-      # 7. 验证文件架构
-      #
-      # 不能执行 ARM64 二进制，
-      # 但可以确认生成的确实是 ARM64 ELF。
+      # 6. 验证文件架构
       # ============================================================
       - name: Verify Binary Architecture
         shell: bash
@@ -158,13 +114,7 @@ jobs:
           echo "Version: ${{ steps.version.outputs.version }}"
 
       # ============================================================
-      # 8. 上传 Artifact
-      #
-      # testing 示例：
-      # sing-box-linux-arm64-1.14.0-beta.9-abcdef1
-      #
-      # Tag 示例：
-      # sing-box-linux-arm64-1.14.0-beta.9
+      # 7. 上传 Artifact
       # ============================================================
       - name: Upload Artifact
         uses: actions/upload-artifact@v4

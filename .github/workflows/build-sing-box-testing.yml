@@ -8,13 +8,6 @@ on:
         required: true
         default: 'testing'
 
-  schedule:
-    # UTC 00:00 = 北京时间 08:00 / 韩国时间 09:00
-    - cron: '0 0 * * *'
-
-permissions:
-  contents: read
-
 jobs:
   build:
     name: Build Linux ARM64

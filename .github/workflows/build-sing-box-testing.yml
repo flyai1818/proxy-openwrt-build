@@ -50,12 +50,12 @@ jobs:
           echo "COMMIT=${COMMIT}" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 3. Setup Go 1.27 系列（最新补丁）
+      # 3. Setup Go (最新稳定版)
       # ============================================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.27.x'
+          go-version: 'stable'
           cache-dependency-path: src/go.sum
 
       # ============================================================

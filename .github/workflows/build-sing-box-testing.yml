@@ -50,16 +50,16 @@ jobs:
           echo "COMMIT=${COMMIT}" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 3. Setup Go (使用项目 go.mod 声明的版本)
+      # 3. Setup Go 1.27 系列（最新补丁）
       # ============================================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: src/go.mod
+          go-version: '1.27.x'
           cache-dependency-path: src/go.sum
 
       # ============================================================
-      # 4. 编译 Linux ARM64
+      # 4. 沿用上游 Makefile 编译，只覆盖 VERSION 和 TAGS
       # ============================================================
       - name: Build binary
         working-directory: src
@@ -67,30 +67,36 @@ jobs:
           GOOS: linux
           GOARCH: arm64
           CGO_ENABLED: "0"
+        run: |
+          set -euo pipefail
+
+          make build \
+            VERSION="${{ steps.meta.outputs.version }}" \
+            TAGS="with_quic,with_utls,with_clash_api"
+
+          mv sing-box sing-box-linux-arm64
+          chmod +x sing-box-linux-arm64
+
+      # ============================================================
+      # 5. 验证架构，并确认版本号已注入二进制
+      # ============================================================
+      - name: Verify binary
+        working-directory: src
+        env:
           VER: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
 
-          echo "Building sing-box ${VER} (testing ${COMMIT})"
-
-          go build -v -trimpath \
-            -tags "with_quic,with_utls,with_clash_api" \
-            -ldflags "-X github.com/sagernet/sing-box/constant.Version=${VER} -s -w -buildid=" \
-            -o sing-box-linux-arm64 ./cmd/sing-box
-
-          chmod +x sing-box-linux-arm64
-
-      # ============================================================
-      # 5. 验证架构
-      # ============================================================
-      - name: Verify binary architecture
-        working-directory: src
-        run: |
-          set -euo pipefail
           file sing-box-linux-arm64 | grep -q "ARM aarch64" || {
             echo "ERROR: binary is not Linux ARM64" >&2
             exit 1
           }
+
+          grep -a -q "${VER}" sing-box-linux-arm64 || {
+            echo "ERROR: version ${VER} not embedded in binary" >&2
+            exit 1
+          }
+
           echo "Binary verified."
 
       # ============================================================

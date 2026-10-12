@@ -1,138 +1,105 @@
-name: Build sing-box Linux ARM64 (Official Testing)
+name: Build sing-box Linux ARM64 (testing)
 
 on:
   workflow_dispatch:
-    inputs:
-      target:
-        description: '选择编译目标 (latest-prerelease 或 testing 分支)'
-        required: true
-        default: 'latest-prerelease'
-        type: choice
-        options:
-          - latest-prerelease
-          - testing
+
+permissions:
+  contents: read
 
 jobs:
   build:
-    name: Build Linux ARM64
+    name: Build linux/arm64 from testing
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       # ============================================================
-      # 1. 确定编译对象与版本号 (自动识别最新 prerelease Tag)
+      # 1. 获取官方最新 alpha (prerelease) 的 tag，作为版本号
       # ============================================================
-      - name: Resolve Target & Version
+      - name: Resolve latest alpha version
         id: meta
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
 
-          CHOSEN="${{ github.event.inputs.target }}"
+          TAG=$(gh api repos/SagerNet/sing-box/releases \
+            --jq '[.[] | select(.prerelease == true)][0].tag_name')
 
-          if [ "${CHOSEN}" = "latest-prerelease" ]; then
-            # 获取官方最新发布的 tag（例如 v1.15.0-alpha.9）
-            TAG=$(gh api repos/SagerNet/sing-box/releases --jq '.[0].tag_name')
-            REF="${TAG}"
-            VER="${TAG#v}"
-          else
-            REF="testing"
-            VER=""
+          if [ -z "${TAG}" ] || [ "${TAG}" = "null" ]; then
+            echo "ERROR: no prerelease found" >&2
+            exit 1
           fi
 
-          echo "Selected ref: ${REF}"
-          echo "ref=${REF}" >> "$GITHUB_OUTPUT"
+          VER="${TAG#v}"
+          echo "Latest alpha tag: ${TAG}"
           echo "version=${VER}" >> "$GITHUB_OUTPUT"
 
       # ============================================================
-      # 2. 深度为 1 纯净克隆（彻底根除 Tag / 分支刷屏）
+      # 2. 浅克隆 testing 分支到子目录 src/
       # ============================================================
-      - name: Checkout Code
-        shell: bash
+      - name: Clone testing branch
         run: |
           set -euo pipefail
-          REF="${{ steps.meta.outputs.ref }}"
-          echo "Cloning SagerNet/sing-box at ${REF}..."
 
-          git clone --quiet --depth 1 --branch "${REF}" https://github.com/SagerNet/sing-box.git .
-          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git clone --depth 1 --branch testing \
+            https://github.com/SagerNet/sing-box.git src
+
+          COMMIT=$(git -C src rev-parse --short HEAD)
+          echo "Testing commit: ${COMMIT}"
+          echo "COMMIT=${COMMIT}" >> "$GITHUB_ENV"
 
       # ============================================================
-      # 3. Setup Go (最新稳定版)
+      # 3. Setup Go (使用项目 go.mod 声明的版本)
       # ============================================================
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: 'stable'
-          cache: true
+          go-version-file: src/go.mod
+          cache-dependency-path: src/go.sum
 
       # ============================================================
-      # 4. 确定最终注入的版本号
+      # 4. 编译 Linux ARM64
       # ============================================================
-      - name: Determine Version
-        id: final_version
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          VER="${{ steps.meta.outputs.version }}"
-
-          # 如果选的是 testing 分支，版本号追加 short commit
-          if [ -z "${VER}" ]; then
-            SHORT_COMMIT=$(git rev-parse --short HEAD)
-            # 抓取 go.mod 或用内部 read_tag，兜底拼上 commit
-            BASE_TAG=$(gh api repos/SagerNet/sing-box/releases --jq '.[0].tag_name' | sed 's/^v//')
-            VER="${BASE_TAG}-${SHORT_COMMIT}"
-          fi
-
-          echo "Final Version: ${VER}"
-          echo "version=${VER}" >> "$GITHUB_OUTPUT"
-
-      # ============================================================
-      # 5. 编译 Linux ARM64
-      # ============================================================
-      - name: Build Binary
-        shell: bash
+      - name: Build binary
+        working-directory: src
         env:
           GOOS: linux
           GOARCH: arm64
-          CGO_ENABLED: 0
+          CGO_ENABLED: "0"
+          VER: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
 
-          VER="${{ steps.final_version.outputs.version }}"
-          echo "Building sing-box version: ${VER}"
-          echo "Target: ${GOOS}/${GOARCH}"
+          echo "Building sing-box ${VER} (testing ${COMMIT})"
 
-          # 直接通过 -ldflags 注入准确版本号，无需依赖 makefile 内部缓慢且容易出错的 git 解析
-          make build \
-            VERSION="${VER}" \
-            TAGS="with_quic,with_utls,with_clash_api"
+          go build -v -trimpath \
+            -tags "with_quic,with_utls,with_clash_api" \
+            -ldflags "-X github.com/sagernet/sing-box/constant.Version=${VER} -s -w -buildid=" \
+            -o sing-box-linux-arm64 ./cmd/sing-box
 
-          mv sing-box sing-box-linux-arm64
           chmod +x sing-box-linux-arm64
 
       # ============================================================
-      # 6. 验证二进制
+      # 5. 验证架构
       # ============================================================
-      - name: Verify Binary Architecture
-        shell: bash
+      - name: Verify binary architecture
+        working-directory: src
         run: |
           set -euo pipefail
           file sing-box-linux-arm64 | grep -q "ARM aarch64" || {
-            echo "ERROR: Binary is not Linux ARM64."
+            echo "ERROR: binary is not Linux ARM64" >&2
             exit 1
           }
-          echo "Binary verified successfully."
+          echo "Binary verified."
 
       # ============================================================
-      # 7. 上传 Artifact
+      # 6. 上传 Artifact (名字包含版本号和 testing commit)
       # ============================================================
-      - name: Upload Artifact
+      - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: sing-box-linux-arm64-${{ steps.final_version.outputs.version }}
-          path: sing-box-linux-arm64
+          name: sing-box-linux-arm64-${{ steps.meta.outputs.version }}-${{ env.COMMIT }}
+          path: src/sing-box-linux-arm64
           compression-level: 9
           if-no-files-found: error

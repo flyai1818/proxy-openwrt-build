@@ -76,12 +76,15 @@ jobs:
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
 
           BASE_TAG="$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
-          if [[ -z "${BASE_TAG}" ]]; then
-            echo "ERROR: no sing-box version tag reachable from HEAD" >&2
-            exit 1
+
+          if [[ -n "${BASE_TAG}" ]]; then
+            BASE_VERSION="${BASE_TAG#v}"
+          else
+            BASE_TAG="unversioned"
+            BASE_VERSION="dev"
+            echo "WARNING: no reachable v* tag from HEAD; using dev version label" >&2
           fi
 
-          BASE_VERSION="${BASE_TAG#v}"
           VERSION="${BASE_VERSION}-chizi-ebpf-inbound.${SHORT_SHA}"
           RELEASE_TAG="chizi-ebpf-inbound-${BASE_VERSION}-${SHORT_SHA}"
 

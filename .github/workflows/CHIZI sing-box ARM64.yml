@@ -37,7 +37,7 @@ jobs:
         run: |
           set -euo pipefail
 
-          REF="${INPUT_REF}"
+          REF="${INPUT_REF// /}"
           if [[ -z "${REF}" ]]; then
             echo "ERROR: source_ref is empty" >&2
             exit 1
@@ -48,8 +48,7 @@ jobs:
 
       # ============================================================
       # 2. Checkout CHIZI
-      #
-      # fetch-depth: 0 用于获取完整历史和 tags
+      # fetch-depth: 0 用于获取完整历史和 tags（git describe 需要）
       # ============================================================
       - name: Checkout CHIZI
         uses: actions/checkout@v5
@@ -62,8 +61,9 @@ jobs:
 
       # ============================================================
       # 3. 读取版本和源码信息
-      #
-      # 版本基准 = 离当前 commit 最近、且可达的 v* tag
+      # 版本基准 = 官方 SagerNet/sing-box 的最新 v* tag（按版本号排序）
+      # 不用 git describe：CHIZI 的 commit 不一定包含官方 tag 的历史，
+      # describe 失败会退化成 dev 版本号。
       # ============================================================
       - name: Read build metadata
         id: meta
@@ -75,15 +75,18 @@ jobs:
           SHA="$(git rev-parse HEAD)"
           SHORT_SHA="$(git rev-parse --short=8 HEAD)"
 
-          BASE_TAG="$(git describe --tags --abbrev=0 --match 'v*' HEAD 2>/dev/null || true)"
+          BASE_TAG="$(git ls-remote --tags --refs https://github.com/SagerNet/sing-box.git 'refs/tags/v*' \
+            | awk '{print $2}' | sed 's#refs/tags/##' \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$' \
+            | sort -V | tail -n 1)"
 
-          if [[ -n "${BASE_TAG}" ]]; then
-            BASE_VERSION="${BASE_TAG#v}"
-          else
-            BASE_TAG="unversioned"
-            BASE_VERSION="dev"
-            echo "WARNING: no reachable v* tag from HEAD; using dev version label" >&2
+          if [[ -z "${BASE_TAG}" ]]; then
+            echo "ERROR: could not read official SagerNet/sing-box tags" >&2
+            exit 1
           fi
+
+          BASE_VERSION="${BASE_TAG#v}"
+          echo "Official base tag: ${BASE_TAG}"
 
           VERSION="${BASE_VERSION}-chizi-ebpf-inbound.${SHORT_SHA}"
           RELEASE_TAG="chizi-ebpf-inbound-${BASE_VERSION}-${SHORT_SHA}"
@@ -146,11 +149,14 @@ jobs:
           cache: true
           cache-dependency-path: source/go.sum
 
+      - name: Show Go version
+        if: steps.release.outputs.exists != 'true'
+        run: go version
+
       # ============================================================
       # 6. 运行 eBPF 相关测试
-      #
       # - include 包的测试需要 with_ebpf tag 才能注册 ebpf inbound
-      # - protocol/ebpf 包含多个 *_test.go
+      # - GOFLAGS=-mod=readonly：go.mod/go.sum 不一致时直接失败，而不是静默修改
       # ============================================================
       - name: Test eBPF
         if: steps.release.outputs.exists != 'true'
@@ -158,6 +164,7 @@ jobs:
         shell: bash
         env:
           CGO_ENABLED: "0"
+          GOFLAGS: -mod=readonly
         run: |
           set -euo pipefail
 
@@ -177,6 +184,7 @@ jobs:
           GOOS: linux
           GOARCH: arm64
           CGO_ENABLED: "0"
+          GOFLAGS: -mod=readonly
           VERSION: ${{ steps.meta.outputs.version }}
         run: |
           set -euo pipefail
@@ -209,9 +217,10 @@ jobs:
         run: |
           set -euo pipefail
 
-          test -s dist/sing-box-linux-arm64
+          BIN="dist/sing-box-linux-arm64"
+          test -s "${BIN}"
 
-          FILE_INFO="$(file dist/sing-box-linux-arm64)"
+          FILE_INFO="$(file "${BIN}")"
           echo "${FILE_INFO}"
 
           if ! grep -Eqi 'ARM aarch64|ARM64|aarch64' <<< "${FILE_INFO}"; then
@@ -226,6 +235,7 @@ jobs:
 
           cd dist
           sha256sum sing-box-linux-arm64 > sing-box-linux-arm64.sha256
+          sha256sum -c sing-box-linux-arm64.sha256
 
           ls -lh sing-box-linux-arm64
           cat sing-box-linux-arm64.sha256
@@ -266,6 +276,8 @@ jobs:
 
       # ============================================================
       # 10. 发布 Release
+      # 注意：--target 指的是本仓库（workflow 所在仓库）的 commit，
+      # 不是 CHIZI 的 commit。CHIZI 的 commit 信息写在 release notes 里。
       # ============================================================
       - name: Publish release
         if: steps.release.outputs.exists != 'true'
@@ -283,6 +295,8 @@ jobs:
         run: |
           set -euo pipefail
 
+          NOTES="${RUNNER_TEMP}/release-notes.md"
+
           {
             echo "## CHIZI sing-box ARM64 (ebpf-inbound)"
             echo
@@ -295,12 +309,12 @@ jobs:
             echo "- Target: \`linux/arm64\`"
             echo "- CGO: \`disabled\`"
             echo "- Build tags: \`${BUILD_TAGS}\`"
-          } > /tmp/release-notes.md
+          } > "${NOTES}"
 
           gh release create "${RELEASE_TAG}" \
             --target "${GITHUB_SHA}" \
             --title "${VERSION}" \
-            --notes-file /tmp/release-notes.md \
+            --notes-file "${NOTES}" \
             dist/sing-box-linux-arm64 \
             dist/sing-box-linux-arm64.sha256 \
             dist/build-info.txt
